@@ -1,9 +1,11 @@
-import type { PrismaClient } from "@/generated/prisma/client";
-import { DAY_MS } from "@/lib/fairness";
-import { blocksForTomorrow } from "@/lib/blocks";
+import { withRetry, type PrismaClient } from "@/database";
+import { DAY_MS } from "@/lib/allocation";
+import { blocksForDay, nextOpenDay } from "@/lib/blocks";
 
 /**
- * The example from PLAN.md: 2 rooms, 6 students competing for tomorrow 13:00–15:00.
+ * The example from PLAN.md: 2 rooms, 6 students competing for 13:00–15:00
+ * on the next day whose 8 PM deadline hasn't passed yet (so the demo always
+ * starts "before 8 PM", whatever time it is loaded).
  *
  * History is written as "N days ago" so the scores come out the same
  * whenever the demo is loaded.
@@ -83,8 +85,12 @@ export const DEMO_STUDENTS: {
 
 export const DEMO_ROOMS = ["Room A", "Room B"];
 
-/** Wipe everything and load the demo. Safe to run again. */
-export async function loadDemo(db: PrismaClient, now = new Date()) {
+/** Wipe everything and load the demo. Safe to run again (also on a dropped connection). */
+export function loadDemo(db: PrismaClient, now = new Date()) {
+  return withRetry(() => writeDemo(db, now));
+}
+
+async function writeDemo(db: PrismaClient, now: Date) {
   await db.$transaction([
     db.reservation.deleteMany(),
     db.request.deleteMany(),
@@ -160,11 +166,11 @@ export async function loadDemo(db: PrismaClient, now = new Date()) {
     }
   }
 
-  // Tomorrow's fixed blocks.
-  const tomorrow = await Promise.all(
-    blocksForTomorrow(now).map((b) => db.slot.create({ data: b })),
+  // The open day's fixed blocks.
+  const openDay = await Promise.all(
+    blocksForDay(nextOpenDay(now)).map((b) => db.slot.create({ data: b })),
   );
-  const [, block11, block13] = tomorrow;
+  const [, block11, block13] = openDay;
 
   // 13:00–15:00: 6 students, 2 rooms → HIGH demand. Abel asks first on purpose.
   const order = ["S1005", "S1002", "S1003", "S1001", "S1004", "S1006"];
@@ -189,5 +195,5 @@ export async function loadDemo(db: PrismaClient, now = new Date()) {
     });
   }
 
-  return { rooms: rooms.length, students: DEMO_STUDENTS.length, slots: tomorrow.length };
+  return { rooms: rooms.length, students: DEMO_STUDENTS.length, slots: openDay.length };
 }

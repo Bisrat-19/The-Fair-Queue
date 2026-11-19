@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DAY_MS, levelAfterNoShow, scoreStudent, summarizeHistory, type PastRequest } from "@/lib/fairness";
-import { DEMO_STUDENTS } from "@/lib/demo";
+import { DAY_MS, levelAfterNoShow, scoreStudent, summarizeHistory, type PastRequest } from "@/lib/allocation";
+import { DEMO_STUDENTS } from "@/lib/demo-data";
 
 const NOW = new Date("2026-11-19T18:00:00Z");
 

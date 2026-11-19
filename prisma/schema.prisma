@@ -1,6 +1,6 @@
 generator client {
   provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  output   = "../src/database/client"
 }
 
 datasource db {
@@ -47,6 +47,7 @@ model Request {
   submittedAt  DateTime      @default(now())
   status       RequestStatus @default(PENDING)
   score        Float?
+  scoreDetail  Json? // { reservation, waiting, missed, penalty, total }
   queuePos     Int?
   reason       String?
   student      Student       @relation(fields: [studentId], references: [studentId])
