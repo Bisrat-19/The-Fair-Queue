@@ -85,7 +85,7 @@ export function allocate(
         score,
         reason: approved
           ? `${head} Got a room.`
-          : `${head} In the waiting line at #${i - rooms + 1}; you get a room if one is freed.`,
+          : `${head} Placed at #${i - rooms + 1} in the waiting line at 8 PM; you move up when a room is freed.`,
       };
     }),
   };

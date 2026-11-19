@@ -136,7 +136,7 @@ describe("allocate – high demand (the plan example)", () => {
       "Score 35 (rooms) + 35 (waiting) + 18 (missed) − 0 (no-shows) = 88. Rank 1 of 6 for 2 room(s). Got a room.",
     );
     const sara = results.find((r) => r.studentId === "Sara")!;
-    expect(sara.reason).toContain("waiting line at #1");
+    expect(sara.reason).toContain("Placed at #1 in the waiting line");
   });
 
   it("breaks ties by who asked first", () => {
