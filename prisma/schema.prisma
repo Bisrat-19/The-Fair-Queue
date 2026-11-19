@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Student {
+  studentId    String    @id
+  name         String
+  penaltyLevel Int       @default(0)
+  lastNoShowAt DateTime?
+  createdAt    DateTime  @default(now())
+  requests     Request[]
+}
+
+model Room {
+  id           Int           @id @default(autoincrement())
+  name         String        @unique
+  reservations Reservation[]
+}
+
+// One time block on one day, e.g. 2026-11-20 13:00–15:00
+model Slot {
+  id          Int       @id @default(autoincrement())
+  startsAt    DateTime
+  endsAt      DateTime
+  cutoffAt    DateTime // requests close here (8 PM the day before)
+  allocatedAt DateTime? // set when the 8 PM decision has run
+  requests    Request[]
+
+  @@unique([startsAt])
+}
+
+enum RequestStatus {
+  PENDING // waiting for the 8 PM decision
+  APPROVED // got a room
+  WAITING // in the waiting line
+}
+
+model Request {
+  id           Int           @id @default(autoincrement())
+  studentId    String
+  slotId       Int
+  submittedAt  DateTime      @default(now())
+  status       RequestStatus @default(PENDING)
+  score        Float?
+  queuePos     Int?
+  reason       String?
+  student      Student       @relation(fields: [studentId], references: [studentId])
+  slot         Slot          @relation(fields: [slotId], references: [id])
+  reservation  Reservation?
+
+  @@unique([studentId, slotId]) // one request per student per block
+}
+
+enum ReservationStatus {
+  BOOKED
+  CHECKED_IN
+  CANCELLED // cancelled 2+ hours before, no penalty
+  NO_SHOW // late cancel or no check-in within 15 min
+}
+
+model Reservation {
+  id        Int               @id @default(autoincrement())
+  requestId Int               @unique
+  roomId    Int
+  status    ReservationStatus @default(BOOKED)
+  createdAt DateTime          @default(now())
+  request   Request           @relation(fields: [requestId], references: [id])
+  room      Room              @relation(fields: [roomId], references: [id])
+}
