@@ -52,7 +52,15 @@ A score depends only on the student's own history, never on who else applied.
 
 **Not built on purpose:** login, notifications, room sizes or equipment, recurring bookings, staff overrides.
 
-**Would improve for a real product:** university login (SSO), notifying students when a room frees up, tuning the points with real usage data, staff exceptions (e.g. accessibility) with an audit log, and a background job for the 8 PM decision and automatic no-shows.
+**Would improve for a real product:**
+
+- University login (SSO), notifying students when a room frees up, and staff exceptions (e.g. accessibility) with an audit log.
+- A background job for the 8 PM decision and automatic no-shows.
+- **Machine learning, once there is enough real booking history:**
+  - **Predicting cancellations.** Estimate which bookings are likely to be cancelled, so the waiting line can be told early that a room will probably free up.
+  - **Predicting no-shows.** Estimate the chance a booked student won't come, e.g. from past attendance, time of day and day of week. That lets the system remind them before the block starts, or overbook slightly the way airlines do, so fewer rooms sit empty.
+  - **Learning demand patterns.** Learn which blocks fill up (e.g. exam weeks, afternoons) to suggest quieter times to students, and to help the university plan how many rooms to open.
+  - Start with simple models (e.g. logistic regression or gradient-boosted trees) and only move to neural networks if the data supports it. Predictions should only be used to **fill empty rooms**. A student should never lose priority for what a model *guesses* they will do, only for what they actually did, so the rules stay fair and explainable.
 
 ## Run it
 
