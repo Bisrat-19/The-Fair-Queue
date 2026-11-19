@@ -21,7 +21,7 @@ export const db =
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = db;
 
-const TRANSIENT = new Set(["ETIMEDOUT", "EAI_AGAIN", "ECONNRESET", "ECONNREFUSED", "P1001", "P1017"]);
+const TRANSIENT = new Set(["ETIMEDOUT", "EAI_AGAIN", "ECONNRESET", "ECONNREFUSED", "P1001", "P1017", "P2028"]);
 
 function isTransient(e: unknown): boolean {
   const err = e as { code?: string; cause?: { code?: string }; message?: string };

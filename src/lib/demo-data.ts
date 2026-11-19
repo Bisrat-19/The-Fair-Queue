@@ -91,109 +91,102 @@ export function loadDemo(db: PrismaClient, now = new Date()) {
 }
 
 async function writeDemo(db: PrismaClient, now: Date) {
-  await db.$transaction([
-    db.reservation.deleteMany(),
-    db.request.deleteMany(),
-    db.slot.deleteMany(),
-    db.student.deleteMany(),
-    db.room.deleteMany(),
-  ]);
+  const ago = (days: number) => new Date(now.getTime() - days * DAY_MS);
+  const hours = (d: Date, h: number) => new Date(d.getTime() + h * 3_600_000);
 
-  const rooms = await Promise.all(
-    DEMO_ROOMS.map((name) => db.room.create({ data: { name } })),
-  );
+  // Bulk inserts in one transaction: ~6 round trips instead of ~60,
+  // which matters on a remote database.
+  return db.$transaction(
+    async (tx) => {
+      await tx.$executeRawUnsafe(
+        `TRUNCATE "Reservation", "Request", "Slot", "Student", "Room" RESTART IDENTITY CASCADE`,
+      );
 
-  // Past blocks: one per "days ago" value, starting exactly N days before now.
-  const pastSlotIds = new Map<number, number>();
-  const roomUse = new Map<number, number>(); // daysAgo -> rooms handed out so far
-  const allDaysAgo = [
-    ...new Set(DEMO_STUDENTS.flatMap((s) => s.past.map((p) => p.daysAgo))),
-  ];
-  for (const n of allDaysAgo) {
-    const startsAt = new Date(now.getTime() - n * DAY_MS);
-    const slot = await db.slot.create({
-      data: {
-        startsAt,
-        endsAt: new Date(startsAt.getTime() + 2 * 3_600_000),
-        cutoffAt: new Date(startsAt.getTime() - 17 * 3_600_000),
-        allocatedAt: new Date(startsAt.getTime() - 17 * 3_600_000),
-      },
-    });
-    pastSlotIds.set(n, slot.id);
-  }
-
-  for (const s of DEMO_STUDENTS) {
-    const noShows = s.past
-      .filter((p) => p.result === "no-show")
-      .map((p) => p.daysAgo)
-      .sort((a, b) => b - a); // oldest first
-
-    await db.student.create({
-      data: {
-        studentId: s.studentId,
-        name: s.name,
-        penaltyLevel: noShows.length,
-        lastNoShowAt: noShows.length
-          ? new Date(now.getTime() - noShows[noShows.length - 1] * DAY_MS)
-          : null,
-      },
-    });
-
-    for (const p of s.past) {
-      const slotId = pastSlotIds.get(p.daysAgo)!;
-      if (p.result === "missed") {
-        await db.request.create({
-          data: { studentId: s.studentId, slotId, status: "WAITING", reason: "Demo history" },
-        });
-        continue;
-      }
-      const used = roomUse.get(p.daysAgo) ?? 0;
-      roomUse.set(p.daysAgo, used + 1);
-      await db.request.create({
-        data: {
-          studentId: s.studentId,
-          slotId,
-          status: "APPROVED",
-          reason: "Demo history",
-          reservation: {
-            create: {
-              roomId: rooms[used % rooms.length].id,
-              status: p.result === "used" ? "CHECKED_IN" : "NO_SHOW",
-            },
-          },
-        },
+      const rooms = await tx.room.createManyAndReturn({
+        data: DEMO_ROOMS.map((name) => ({ name })),
       });
-    }
-  }
 
-  // The open day's fixed blocks.
-  const openDay = await Promise.all(
-    blocksForDay(nextOpenDay(now)).map((b) => db.slot.create({ data: b })),
+      // Past blocks (one per "days ago" value) + the open day's fixed blocks.
+      const daysAgo = [...new Set(DEMO_STUDENTS.flatMap((s) => s.past.map((p) => p.daysAgo)))];
+      const openDayBlocks = blocksForDay(nextOpenDay(now));
+      const slots = await tx.slot.createManyAndReturn({
+        data: [
+          ...daysAgo.map((n) => ({
+            startsAt: ago(n),
+            endsAt: hours(ago(n), 2),
+            cutoffAt: hours(ago(n), -17),
+            allocatedAt: hours(ago(n), -17),
+          })),
+          ...openDayBlocks,
+        ],
+      });
+      const slotAt = new Map(slots.map((s) => [s.startsAt.getTime(), s.id]));
+      const pastSlot = (n: number) => slotAt.get(ago(n).getTime())!;
+      const block11 = slotAt.get(openDayBlocks[1].startsAt.getTime())!;
+      const block13 = slotAt.get(openDayBlocks[2].startsAt.getTime())!;
+
+      await tx.student.createMany({
+        data: DEMO_STUDENTS.map((s) => {
+          const noShows = s.past.filter((p) => p.result === "no-show").map((p) => p.daysAgo);
+          return {
+            studentId: s.studentId,
+            name: s.name,
+            penaltyLevel: noShows.length,
+            lastNoShowAt: noShows.length ? ago(Math.min(...noShows)) : null,
+          };
+        }),
+      });
+
+      // Past requests: missed = still waiting when the block started; used / no-show = got a room.
+      const history = DEMO_STUDENTS.flatMap((s) =>
+        s.past.map((p) => ({ studentId: s.studentId, slotId: pastSlot(p.daysAgo), result: p.result })),
+      );
+
+      // 13:00–15:00: 6 students, 2 rooms → HIGH demand. Abel asks first on purpose.
+      const order = ["S1005", "S1002", "S1003", "S1001", "S1004", "S1006"];
+      // 11:00–13:00: 2 students, 2 rooms → LOW demand, first come first served.
+      const low = ["S1007", "S1008"];
+
+      const requests = await tx.request.createManyAndReturn({
+        data: [
+          ...history.map((h) => ({
+            studentId: h.studentId,
+            slotId: h.slotId,
+            status: h.result === "missed" ? ("WAITING" as const) : ("APPROVED" as const),
+            reason: "Demo history",
+          })),
+          ...order.map((studentId, i) => ({
+            studentId,
+            slotId: block13,
+            submittedAt: new Date(now.getTime() - (order.length - i) * 10 * 60_000),
+          })),
+          ...low.map((studentId, i) => ({
+            studentId,
+            slotId: block11,
+            submittedAt: new Date(now.getTime() - (low.length - i) * 10 * 60_000),
+          })),
+        ],
+      });
+      const requestId = new Map(requests.map((r) => [`${r.studentId}:${r.slotId}`, r.id]));
+
+      // Rooms for past bookings, handing out Room A, Room B, ... per block.
+      const roomsUsed = new Map<number, number>();
+      await tx.reservation.createMany({
+        data: history
+          .filter((h) => h.result !== "missed")
+          .map((h) => {
+            const used = roomsUsed.get(h.slotId) ?? 0;
+            roomsUsed.set(h.slotId, used + 1);
+            return {
+              requestId: requestId.get(`${h.studentId}:${h.slotId}`)!,
+              roomId: rooms[used % rooms.length].id,
+              status: h.result === "used" ? ("CHECKED_IN" as const) : ("NO_SHOW" as const),
+            };
+          }),
+      });
+
+      return { rooms: rooms.length, students: DEMO_STUDENTS.length, slots: openDayBlocks.length };
+    },
+    { maxWait: 10_000, timeout: 60_000 },
   );
-  const [, block11, block13] = openDay;
-
-  // 13:00–15:00: 6 students, 2 rooms → HIGH demand. Abel asks first on purpose.
-  const order = ["S1005", "S1002", "S1003", "S1001", "S1004", "S1006"];
-  for (const [i, studentId] of order.entries()) {
-    await db.request.create({
-      data: {
-        studentId,
-        slotId: block13.id,
-        submittedAt: new Date(now.getTime() - (order.length - i) * 10 * 60_000),
-      },
-    });
-  }
-
-  // 11:00–13:00: 2 students, 2 rooms → LOW demand, first come first served.
-  for (const [i, studentId] of ["S1007", "S1008"].entries()) {
-    await db.request.create({
-      data: {
-        studentId,
-        slotId: block11.id,
-        submittedAt: new Date(now.getTime() - (2 - i) * 10 * 60_000),
-      },
-    });
-  }
-
-  return { rooms: rooms.length, students: DEMO_STUDENTS.length, slots: openDay.length };
 }

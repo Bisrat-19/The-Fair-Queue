@@ -162,8 +162,17 @@ export async function decideDueSlots(now = new Date(), force = false) {
     },
     orderBy: { startsAt: "asc" },
   }));
-  let decided = 0;
-  for (const slot of due) {
+  // Blocks nobody asked for: just mark them decided in one query.
+  const counts = await withRetry(() =>
+    db.request.groupBy({ by: ["slotId"], where: { slotId: { in: due.map((s) => s.id) } }, _count: true }),
+  );
+  const withRequests = new Set(counts.map((c) => c.slotId));
+  const empty = due.filter((s) => !withRequests.has(s.id)).map((s) => s.id);
+  if (empty.length)
+    await withRetry(() => db.slot.updateMany({ where: { id: { in: empty } }, data: { allocatedAt: now } }));
+
+  let decided = empty.length;
+  for (const slot of due.filter((s) => withRequests.has(s.id))) {
     const mode = await transaction((tx) => decideSlot(tx, slot.id, now));
     if (mode) decided++;
   }
@@ -344,19 +353,25 @@ export async function getUpcomingSlots(now = new Date()) {
       db.slot.findMany({
         where: { startsAt: { gt: now } },
         orderBy: { startsAt: "asc" },
-        include: { _count: { select: { requests: true } } },
+        include: { requests: { select: { reservation: { select: { status: true } } } } },
       }),
     ]),
   );
-  return slots.map((s) => ({
-    id: s.id,
-    startsAt: s.startsAt,
-    endsAt: s.endsAt,
-    cutoffAt: s.cutoffAt,
-    decided: s.allocatedAt !== null,
-    rooms,
-    requests: s._count.requests,
-  }));
+  return slots.map((s) => {
+    const held = s.requests.filter(
+      (r) => r.reservation?.status === "BOOKED" || r.reservation?.status === "CHECKED_IN",
+    ).length;
+    return {
+      id: s.id,
+      startsAt: s.startsAt,
+      endsAt: s.endsAt,
+      cutoffAt: s.cutoffAt,
+      decided: s.allocatedAt !== null,
+      rooms,
+      freeRooms: Math.max(0, rooms - held),
+      requests: s.requests.length,
+    };
+  });
 }
 
 export async function getStudentView(rawStudentId: string, now = new Date()) {
