@@ -191,20 +191,31 @@ export async function runCutoffNow(now = new Date()): Promise<Result> {
 // Student actions
 // ---------------------------------------------------------------------------
 
+/** Register a new student with their Student ID and name. */
+export async function registerStudent(input: { studentId: string; name: string }): Promise<Result> {
+  const studentId = input.studentId.trim().toUpperCase();
+  const name = input.name.trim();
+  if (!studentId) return fail("Enter your Student ID.");
+  if (!name) return fail("Enter your full name.");
+
+  return transaction(async (tx) => {
+    const existing = await tx.student.findUnique({ where: { studentId } });
+    if (existing) return fail(`${studentId} is already registered. Use "Already registered?" instead.`);
+    await tx.student.create({ data: { studentId, name } });
+    return ok(`Welcome, ${name}. You can now ask for a room.`);
+  });
+}
+
 export async function requestRoom(
-  input: { studentId: string; name?: string; slotId: number },
+  input: { studentId: string; slotId: number },
   now = new Date(),
 ): Promise<Result> {
   const studentId = input.studentId.trim().toUpperCase();
-  const name = input.name?.trim();
-  if (!studentId) return fail("Please enter your Student ID.");
+  if (!studentId) return fail("Enter your Student ID first.");
 
   return transaction(async (tx) => {
     const student = await tx.student.findUnique({ where: { studentId } });
-    if (!student) {
-      if (!name) return fail("New Student ID – please also enter your name.");
-      await tx.student.create({ data: { studentId, name } });
-    }
+    if (!student) return fail(`We don't know ${studentId} yet. Register as a new student first.`);
 
     const slot = await tx.slot.findUnique({ where: { id: input.slotId } });
     if (!slot || slot.startsAt <= now) return fail("This block has already started.");

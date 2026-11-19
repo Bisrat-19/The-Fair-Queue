@@ -2,6 +2,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { cancelRequestAction, requestRoomAction } from "@/app/actions";
 import { ActionButton } from "@/components/action-button";
+import { RegisterForm } from "@/components/register-form";
 import { ScoreBar } from "@/components/score-bar";
 import { StatusPill, requestStatus } from "@/components/status-pill";
 import { scoreStudent, type ScoreBreakdown } from "@/lib/allocation";
@@ -15,12 +16,12 @@ export default async function StudentPage({ searchParams }: PageProps<"/">) {
   await connection(); // always render with fresh data
   const params = await searchParams;
   const id = typeof params.id === "string" ? params.id.trim().toUpperCase() : "";
-  const name = typeof params.name === "string" ? params.name.trim() : "";
+  const welcome = params.welcome === "1";
 
   const now = new Date();
   const { student, slots, requests } = await getStudentView(id, now);
   const mine = new Map(requests.map((r) => [r.slotId, r]));
-  const canRequest = Boolean(id && (student || name));
+  const canRequest = Boolean(student);
   const todayScore = student ? scoreStudent(student.history, now) : null;
 
   return (
@@ -28,66 +29,92 @@ export default async function StudentPage({ searchParams }: PageProps<"/">) {
       <section className="max-w-2xl">
         <h1 className="font-display text-4xl font-bold tracking-tight sm:text-5xl">Book a study room</h1>
         <p className="mt-3 text-lg text-muted">
-          Ask for a block before 8 PM the day before. If more students ask than there are rooms,
-          the rooms go to the students who have had the fewest lately.
+          Ask for a block before 8 PM the day before. If more students ask than there are rooms, the rooms go
+          to the students who have had the fewest lately.
         </p>
       </section>
 
-      {/* Who are you? */}
-      <section className="rounded-lg border border-line bg-surface p-5 sm:p-6">
-        <form method="get" className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-sm font-medium">
-            Student ID
-            <input
-              name="id"
-              defaultValue={id}
-              required
-              placeholder="e.g. S1001"
-              autoComplete="off"
-              className="w-40 rounded-md border border-line bg-paper px-3 py-2 font-semibold uppercase tracking-wide placeholder:font-normal placeholder:normal-case"
-            />
-          </label>
-          {id && !student && (
-            <label className="flex flex-col gap-1 text-sm font-medium">
-              Your name
-              <input
-                name="name"
-                defaultValue={name}
-                required
-                placeholder="First time here"
-                className="w-48 rounded-md border border-line bg-paper px-3 py-2"
-              />
-            </label>
-          )}
-          <button className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-ink/85">
-            {id && !student ? "Continue" : "Show my bookings"}
-          </button>
-        </form>
+      {/* Who are you? Two clear choices until a known student is open. */}
+      {!student && (
+        <section className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-lg border border-line bg-surface p-5 sm:p-6">
+            <h2 className="font-display text-xl font-bold">Already registered?</h2>
+            <p className="mt-1 text-sm text-muted">Enter your Student ID to see your bookings.</p>
+            <form method="get" className="mt-4 flex flex-col gap-3">
+              <label className="flex flex-col gap-1 text-sm font-medium">
+                Student ID
+                <input
+                  name="id"
+                  defaultValue={id}
+                  required
+                  placeholder="e.g. S1001"
+                  autoComplete="off"
+                  className="w-full rounded-md border border-line bg-paper px-3 py-2 font-semibold uppercase tracking-wide placeholder:font-normal placeholder:normal-case"
+                />
+              </label>
+              <button className="self-start rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-ink/85">
+                Show my bookings
+              </button>
+            </form>
+            {id ? (
+              <p role="alert" className="mt-3 text-sm text-danger">
+                We don&apos;t know <strong>{id}</strong> yet. Register as a new student first.
+              </p>
+            ) : (
+              <p className="mt-3 text-sm text-muted">
+                From the demo:{" "}
+                <Link className="font-semibold text-ink underline" href="/?id=S1001">
+                  S1001
+                </Link>{" "}
+                (Meron) or{" "}
+                <Link className="font-semibold text-ink underline" href="/?id=S1005">
+                  S1005
+                </Link>{" "}
+                (Abel).
+              </p>
+            )}
+          </div>
 
-        {id && !student && !name && (
-          <p className="mt-3 text-sm text-muted">
-            We don&apos;t have <strong>{id}</strong> yet. Add your name to make your first request.
-          </p>
-        )}
-        {!id && (
-          <p className="mt-3 text-sm text-muted">
-            No account needed. Try <Link className="font-semibold text-ink underline" href="/?id=S1001">S1001</Link> (Meron)
-            or <Link className="font-semibold text-ink underline" href="/?id=S1005">S1005</Link> (Abel) from the demo.
-          </p>
-        )}
+          <div className="rounded-lg border border-line bg-surface p-5 sm:p-6">
+            <h2 className="font-display text-xl font-bold">New here?</h2>
+            <p className="mt-1 text-sm text-muted">
+              Register once with your Student ID and name. No password needed.
+            </p>
+            <div className="mt-4">
+              <RegisterForm defaultId={id} />
+            </div>
+          </div>
+        </section>
+      )}
 
-        {student && todayScore && (
-          <div className="mt-6 grid gap-6 border-t border-line pt-6 md:grid-cols-[1fr_2fr]">
+      {student && welcome && (
+        <p role="status" className="rounded-md bg-room-soft px-4 py-3 text-sm font-medium text-room">
+          Welcome, {student.name}. You&apos;re registered and can now ask for a room.
+        </p>
+      )}
+
+      {student && todayScore && (
+        <section className="relative rounded-lg border border-line bg-surface p-5 sm:p-6">
+          <Link
+            href="/"
+            className="absolute top-5 right-5 inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-semibold text-ink hover:border-ink sm:top-6 sm:right-6"
+          >
+            <span aria-hidden>←</span> Back
+          </Link>
+          <div className="grid gap-6 md:grid-cols-[1fr_2fr]">
             <div>
-              <p className="font-display text-xl font-bold">Hi, {student.name}</p>
-              <p className="mt-1 text-sm text-muted">
+              <p className="pr-24 font-display text-xl font-bold">Hi, {student.name}</p>
+              <p className="text-sm text-muted">{student.studentId}</p>
+              <p className="mt-3 text-sm text-muted">
                 {student.history.bookingsLast30d} room(s) in the last 30 days.
                 {student.history.lastBookingAt
                   ? ` Last one on ${fmtShortDay(student.history.lastBookingAt)}.`
                   : " You haven't had a room yet."}
               </p>
               {student.history.penaltyLevel === 1 && (
-                <p className="mt-2 text-sm text-wait">You have one no-show. Another one will lower your score.</p>
+                <p className="mt-2 text-sm text-wait">
+                  You have one no-show. Another one will lower your score.
+                </p>
               )}
               {student.history.penaltyLevel >= 2 && (
                 <p className="mt-2 text-sm text-danger">
@@ -100,8 +127,8 @@ export default async function StudentPage({ searchParams }: PageProps<"/">) {
               <ScoreBar score={todayScore} />
             </div>
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
       {/* My requests */}
       {requests.length > 0 && (
@@ -115,7 +142,9 @@ export default async function StudentPage({ searchParams }: PageProps<"/">) {
               return (
                 <li key={r.id} className="grid gap-4 p-5 md:grid-cols-[11rem_1fr_auto] md:items-start">
                   <div>
-                    <p className="font-display text-lg font-bold tabular-nums">{fmtBlock(r.slot.startsAt, r.slot.endsAt)}</p>
+                    <p className="font-display text-lg font-bold tabular-nums">
+                      {fmtBlock(r.slot.startsAt, r.slot.endsAt)}
+                    </p>
                     <p className="text-sm text-muted">{fmtShortDay(r.slot.startsAt)}</p>
                     <div className="mt-2">
                       <StatusPill tone={s.tone}>{s.text}</StatusPill>
@@ -177,14 +206,18 @@ export default async function StudentPage({ searchParams }: PageProps<"/">) {
                       <span className="flex-1 text-sm text-muted">
                         {slot.decided ? (
                           slot.freeRooms > 0 ? (
-                            <span className="text-room">{slot.freeRooms} of {slot.rooms} rooms free</span>
+                            <span className="text-room">
+                              {slot.freeRooms} of {slot.rooms} rooms free
+                            </span>
                           ) : (
                             <>All {slot.rooms} rooms taken</>
                           )
                         ) : (
                           <>
                             {slot.requests} asked for {slot.rooms} rooms
-                            {busy && <span className="text-wait">, so it will be ranked by score at 8 PM</span>}
+                            {busy && (
+                              <span className="text-wait">, so it will be ranked by score at 8 PM</span>
+                            )}
                           </>
                         )}
                       </span>
@@ -193,8 +226,10 @@ export default async function StudentPage({ searchParams }: PageProps<"/">) {
                       ) : (
                         <ActionButton
                           action={requestRoomAction}
-                          fields={{ studentId: id, name, slotId: slot.id }}
-                          label={slot.decided && slot.freeRooms === 0 ? "Join waiting line" : "Ask for a room"}
+                          fields={{ studentId: id, slotId: slot.id }}
+                          label={
+                            slot.decided && slot.freeRooms === 0 ? "Join waiting line" : "Ask for a room"
+                          }
                           pendingLabel="Sending…"
                           variant="primary"
                           disabled={!canRequest}
@@ -208,7 +243,9 @@ export default async function StudentPage({ searchParams }: PageProps<"/">) {
           );
         })}
         {!canRequest && (
-          <p className="mt-4 text-sm text-muted">Enter your Student ID above to ask for a room.</p>
+          <p className="mt-4 text-sm text-muted">
+            Register or enter your Student ID above to ask for a room.
+          </p>
         )}
       </section>
     </div>

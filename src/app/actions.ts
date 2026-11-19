@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { db } from "@/database";
 import { loadDemo } from "@/lib/demo-data";
 import * as service from "@/lib/booking-service";
@@ -26,10 +27,16 @@ const num = (f: FormData, k: string) => Number(f.get(k));
 const str = (f: FormData, k: string) => String(f.get(k) ?? "");
 
 // Student
+export async function registerStudentAction(_: ActionState, f: FormData) {
+  const studentId = str(f, "studentId").trim().toUpperCase();
+  const state = await run(() => service.registerStudent({ studentId, name: str(f, "name") }));
+  // On success, open the new student's page (redirect must happen outside try/catch).
+  if (state?.ok) redirect(`/?id=${encodeURIComponent(studentId)}&welcome=1`);
+  return state;
+}
+
 export async function requestRoomAction(_: ActionState, f: FormData) {
-  return run(() =>
-    service.requestRoom({ studentId: str(f, "studentId"), name: str(f, "name"), slotId: num(f, "slotId") }),
-  );
+  return run(() => service.requestRoom({ studentId: str(f, "studentId"), slotId: num(f, "slotId") }));
 }
 
 export async function cancelRequestAction(_: ActionState, f: FormData) {
